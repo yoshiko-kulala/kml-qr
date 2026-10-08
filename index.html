@@ -177,8 +177,7 @@
       </div>
     </div>
     <div class="row">
-      <button class="primary" id="shareBtn">Google Earthで開く</button>
-      <button class="secondary" id="saveBtn">KMLを保存</button>
+      <button class="primary" id="saveBtn">KMLを保存</button>
       <button class="secondary" id="linkBtn">このKMLを開くURLをコピー</button>
     </div>
     <details>
@@ -351,22 +350,6 @@
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
-
-  $("shareBtn").addEventListener("click", async () => {
-    if (!current) return;
-    const f = kmlFile();
-    if (navigator.canShare && navigator.canShare({ files: [f] })) {
-      try {
-        await navigator.share({ files: [f] });
-        setStatus("共有メニューから Google Earth を選んでください");
-      } catch (e) {
-        if (e.name !== "AbortError") setStatus("共有できませんでした。「KMLを保存」を使ってください", true);
-      }
-    } else {
-      download();
-      setStatus("このブラウザはKMLの共有に対応していないため保存しました。ダウンロードしたファイルをGoogle Earthで開いてください");
-    }
-  });
 
   $("saveBtn").addEventListener("click", () => {
     if (!current) return;

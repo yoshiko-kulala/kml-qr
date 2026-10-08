@@ -8,7 +8,7 @@ KMLを埋め込んだQRコードをスマホで読み取り、KMLファイルに
 
 1. スマホのブラウザで公開URLを開き、「読み取りを開始」でQRを読む（カメラはHTTPSが必要）
 2. 名前・緯度・経度・方位が表示される
-3. 「Google Earthで開く」（共有シート、非対応ならダウンロード）/「KMLを保存」/「このKMLを開くURLをコピー」
+3. 「KMLを保存」でKMLをダウンロードし、ファイルを Google Earth で開く。「このKMLを開くURLをコピー」でURL共有もできる
 
 QRの中身は次のどちらかです。
 - `<` で始まるKML本文そのもの
@@ -43,6 +43,5 @@ python3 tools/make_qr.py --lat 35.170915 --lng 136.881537 --heading 90 --name �
 
 ## 端末ごとの既知の挙動
 
-- **iOS (Safari)**: 「Google Earthで開く」で共有シートが出る。Google Earth を選ぶ
-- **Android (Chrome)**: `.kml` は Web Share の対象外のため、ダウンロードにフォールバックする。保存後にファイルを Google Earth で開く
+- 「Google Earthで開く」(Web Share) ボタンは、iOS・Android の実機で動作しなかったため削除した。KMLは保存して Google Earth で開く
 - カメラが使えるのはHTTPSまたはlocalhostのみ。許可が拒否された場合や非対応環境では、画面に原因（エラー名とメッセージ）を表示する
