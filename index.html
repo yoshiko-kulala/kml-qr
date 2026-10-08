@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KML QR リーダー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+  :root {
+    --paper: #e8eee9;
+    --panel: #f7faf7;
+    --ink: #1c2a23;
+    --muted: #5b6b62;
+    --line: #c3cfc6;
+    --signal: #f0bd1d;
+    --signal-ink: #1c2a23;
+    --error: #b3261e;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14201a;
+      --panel: #1c2b23;
+      --ink: #e4ece6;
+      --muted: #9aaba1;
+      --line: #33463b;
+      --signal: #f0bd1d;
+      --signal-ink: #14201a;
+      --error: #ff8a80;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14201a; --panel: #1c2b23; --ink: #e4ece6; --muted: #9aaba1;
+    --line: #33463b; --signal: #f0bd1d; --signal-ink: #14201a; --error: #ff8a80;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html, body { margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans JP", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  main {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 20px 18px 40px;
+  }
+  h1 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin: 4px 0 4px;
+    letter-spacing: 0.01em;
+  }
+  .lead { color: var(--muted); margin: 0 0 18px; font-size: 0.92rem; }
+
+  .scanner {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    background: var(--ink);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .scanner video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scanner .frame {
+    position: absolute; inset: 18%;
+    border: 3px solid var(--signal);
+    border-radius: 10px;
+    pointer-events: none;
+  }
+  .scanner .idle {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    color: var(--paper); text-align: center; padding: 24px;
+    font-size: 0.95rem;
+  }
+  .scanner:not(.live) video { display: none; }
+  .scanner.live .idle { display: none; }
+  .scanner:not(.live) .frame { display: none; }
+
+  button {
+    font: inherit;
+    font-weight: 500;
+    border: 0;
+    border-radius: 10px;
+    padding: 14px 16px;
+    width: 100%;
+    cursor: pointer;
+    min-height: 48px;
+  }
+  button:focus-visible { outline: 3px solid var(--signal); outline-offset: 2px; }
+  .primary { background: var(--signal); color: var(--signal-ink); }
+  .secondary { background: transparent; color: var(--ink); border: 1.5px solid var(--line); }
+  .row { display: grid; gap: 10px; margin-top: 12px; }
+
+  .status { min-height: 1.6em; margin: 10px 2px 0; font-size: 0.9rem; color: var(--muted); }
+  .status.err { color: var(--error); }
+
+  .result {
+    margin-top: 22px;
+    background: var(--panel);
+    border: 1.5px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+  }
+  .result[hidden] { display: none; }
+  .place { display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: center; }
+  .dial { width: 120px; height: 120px; }
+  .dial .ring { fill: none; stroke: var(--line); stroke-width: 2; }
+  .dial .tick { stroke: var(--muted); stroke-width: 2; }
+  .dial text { fill: var(--muted); font-size: 11px; font-weight: 500; text-anchor: middle; dominant-baseline: central; }
+  .dial .needle { fill: var(--signal); stroke: var(--ink); stroke-width: 1.5; transition: transform 0.5s ease; transform-origin: 60px 60px; }
+  .name { font-weight: 700; font-size: 1.05rem; margin: 0 0 6px; word-break: break-all; }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 0.9rem; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+  details { margin-top: 16px; font-size: 0.85rem; }
+  summary { cursor: pointer; color: var(--muted); }
+  pre {
+    overflow-x: auto;
+    background: var(--paper);
+    border-radius: 8px;
+    padding: 10px;
+    margin: 8px 0 0;
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dial .needle { transition: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>KML QR リーダー</h1>
+  <p class="lead">KMLが埋め込まれたQRを読み取り、Google Earthで開けるファイルにします。</p>
+
+  <div class="scanner" id="scanner">
+    <video id="video" playsinline muted></video>
+    <div class="frame"></div>
+    <div class="idle">「読み取りを開始」を押すとカメラが起動します</div>
+  </div>
+  <div class="row">
+    <button class="primary" id="scanBtn">読み取りを開始</button>
+  </div>
+  <p class="status" id="status" role="status"></p>
+
+  <section class="result" id="result" hidden aria-live="polite">
+    <div class="place">
+      <svg class="dial" viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="ring" cx="60" cy="60" r="52"/>
+        <line class="tick" x1="60" y1="8" x2="60" y2="16"/>
+        <line class="tick" x1="112" y1="60" x2="104" y2="60"/>
+        <line class="tick" x1="60" y1="112" x2="60" y2="104"/>
+        <line class="tick" x1="8" y1="60" x2="16" y2="60"/>
+        <text x="60" y="24">N</text>
+        <text x="96" y="60">E</text>
+        <text x="60" y="96">S</text>
+        <text x="24" y="60">W</text>
+        <polygon class="needle" id="needle" points="60,26 72,64 60,56 48,64"/>
+      </svg>
+      <div>
+        <p class="name" id="pName"></p>
+        <dl>
+          <dt>緯度</dt><dd id="pLat"></dd>
+          <dt>経度</dt><dd id="pLng"></dd>
+          <dt>方位</dt><dd id="pHdg"></dd>
+        </dl>
+      </div>
+    </div>
+    <div class="row">
+      <button class="primary" id="shareBtn">Google Earthで開く</button>
+      <button class="secondary" id="saveBtn">KMLを保存</button>
+      <button class="secondary" id="linkBtn">このKMLを開くURLをコピー</button>
+    </div>
+    <details>
+      <summary>KMLの中身</summary>
+      <pre id="raw"></pre>
+    </details>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const video = $("video"), scanner = $("scanner"), statusEl = $("status");
+  let stream = null, rafId = 0, current = null;
+
+  const setStatus = (msg, isErr = false) => {
+    statusEl.textContent = msg;
+    statusEl.classList.toggle("err", isErr);
+  };
+
+  // ---- base64url (UTF-8) ----
+  const b64urlEncode = (str) => {
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    bytes.forEach((b) => (bin += String.fromCharCode(b)));
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  };
+  const b64urlDecode = (s) => {
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    const bin = atob(s);
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return new TextDecoder("utf-8").decode(bytes);
+  };
+
+  const escapeXml = (s) =>
+    s.replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" }[c]));
+
+  // 緯度経度・方位から最小KMLを組み立てる
+  const buildKml = (lat, lng, hdg, name) =>
+    '<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Placemark>' +
+    `<name>${escapeXml(name)}</name>` +
+    `<Style><IconStyle><heading>${hdg}</heading><Icon><href>https://maps.google.com/mapfiles/kml/shapes/arrow.png</href></Icon></IconStyle></Style>` +
+    `<Point><coordinates>${lng},${lat}</coordinates></Point></Placemark></kml>`;
+
+  // KML文字列から表示用の値を取り出す
+  const parseKml = (text) => {
+    const doc = new DOMParser().parseFromString(text, "application/xml");
+    if (doc.getElementsByTagName("parsererror").length) throw new Error("KMLとして読めませんでした");
+    const pick = (tag) => {
+      const el = doc.getElementsByTagNameNS("*", tag)[0];
+      return el ? el.textContent.trim() : "";
+    };
+    const coords = pick("coordinates").split(/\s+/)[0].split(",");
+    if (coords.length < 2) throw new Error("KMLに座標が見つかりません");
+    return {
+      name: pick("name") || "placemark",
+      lng: parseFloat(coords[0]),
+      lat: parseFloat(coords[1]),
+      heading: pick("heading") === "" ? null : parseFloat(pick("heading")),
+      kml: text,
+    };
+  };
+
+  const show = (data) => {
+    current = data;
+    $("pName").textContent = data.name;
+    $("pLat").textContent = data.lat.toFixed(6);
+    $("pLng").textContent = data.lng.toFixed(6);
+    $("pHdg").textContent = data.heading === null ? "指定なし" : `${data.heading}°`;
+    $("needle").style.transform = `rotate(${data.heading || 0}deg)`;
+    $("needle").style.opacity = data.heading === null ? 0.25 : 1;
+    $("raw").textContent = data.kml;
+    $("result").hidden = false;
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  // QRの読み取り結果を解釈する（KML本文 / このページのURL のどちらにも対応）
+  const handleText = (text) => {
+    const t = text.trim();
+    if (t.startsWith("<")) return show(parseKml(t));
+    try {
+      const u = new URL(t);
+      if (u.hash) return handleHash(u.hash);
+    } catch (_) {}
+    throw new Error("KMLでもこのページのURLでもないQRです");
+  };
+
+  // #k=<base64url KML> または #lat=..&lng=..&h=..&name=..
+  const handleHash = (hash) => {
+    const p = new URLSearchParams(hash.replace(/^#/, ""));
+    if (p.has("k")) return show(parseKml(b64urlDecode(p.get("k"))));
+    if (p.has("lat") && p.has("lng")) {
+      const lat = parseFloat(p.get("lat")), lng = parseFloat(p.get("lng"));
+      const hdg = parseFloat(p.get("h") || "0");
+      if ([lat, lng, hdg].some(Number.isNaN)) throw new Error("URLの数値が正しくありません");
+      const name = p.get("name") || `${lat.toFixed(6)},${lng.toFixed(6)}`;
+      return show(parseKml(buildKml(lat, lng, hdg, name)));
+    }
+  };
+
+  // ---- カメラ読み取り ----
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  const stopScan = () => {
+    cancelAnimationFrame(rafId);
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    scanner.classList.remove("live");
+    $("scanBtn").textContent = "読み取りを開始";
+  };
+
+  const tick = () => {
+    if (!stream) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = window.jsQR(img.data, img.width, img.height, { inversionAttempts: "attemptBoth" });
+      if (code && code.binaryData && code.binaryData.length) {
+        const text = new TextDecoder("utf-8").decode(new Uint8Array(code.binaryData));
+        stopScan();
+        try {
+          handleText(text);
+          setStatus("読み取りました");
+        } catch (e) {
+          setStatus(e.message, true);
+        }
+        return;
+      }
+    }
+    rafId = requestAnimationFrame(tick);
+  };
+
+  $("scanBtn").addEventListener("click", async () => {
+    if (stream) return stopScan();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return setStatus("この環境ではカメラAPI（navigator.mediaDevices）が使えません。HTTPSで開いているか、対応ブラウザかを確認してください", true);
+    }
+    if (!window.jsQR) return setStatus("QR読み取りライブラリを読み込めませんでした。通信状況を確認してください", true);
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      video.srcObject = stream;
+      await video.play();
+      scanner.classList.add("live");
+      $("scanBtn").textContent = "読み取りを止める";
+      setStatus("QRを枠に合わせてください");
+      tick();
+    } catch (e) {
+      stopScan();
+      setStatus(`カメラを起動できませんでした: ${e.name}: ${e.message}`, true);
+    }
+  });
+
+  // ---- 出力 ----
+  const kmlFile = () => {
+    const safe = current.name.replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 60) || "placemark";
+    return new File([current.kml], `${safe}.kml`, { type: "application/vnd.google-earth.kml+xml" });
+  };
+
+  const download = () => {
+    const f = kmlFile();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(f);
+    a.download = f.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+
+  $("shareBtn").addEventListener("click", async () => {
+    if (!current) return;
+    const f = kmlFile();
+    if (navigator.canShare && navigator.canShare({ files: [f] })) {
+      try {
+        await navigator.share({ files: [f] });
+        setStatus("共有メニューから Google Earth を選んでください");
+      } catch (e) {
+        if (e.name !== "AbortError") setStatus("共有できませんでした。「KMLを保存」を使ってください", true);
+      }
+    } else {
+      download();
+      setStatus("このブラウザはKMLの共有に対応していないため保存しました。ダウンロードしたファイルをGoogle Earthで開いてください");
+    }
+  });
+
+  $("saveBtn").addEventListener("click", () => {
+    if (!current) return;
+    download();
+    setStatus("保存しました。ファイルをGoogle Earthで開いてください");
+  });
+
+  $("linkBtn").addEventListener("click", async () => {
+    if (!current) return;
+    const url = `${location.origin}${location.pathname}#k=${b64urlEncode(current.kml)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setStatus(`URLをコピーしました（${url.length}文字）`);
+    } catch (_) {
+      $("raw").textContent = url;
+      setStatus("コピーできなかったので、下の「KMLの中身」にURLを表示しました", true);
+    }
+  });
+
+  // ページURLにデータが付いていれば即表示
+  if (location.hash) {
+    try { handleHash(location.hash); } catch (e) { setStatus(e.message, true); }
+  }
+})();
+</script>
+</body>
+</html>
